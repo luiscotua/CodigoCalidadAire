@@ -1,0 +1,38 @@
+#include <math.h>
+
+#define PPD_PIN D3
+
+unsigned long duration;
+unsigned long starttime;
+unsigned long sampletime_ms = 10000;//sampe 30s ;
+unsigned long lowpulseoccupancy = 0;
+
+float ratio = 0;
+float concentration = 0;
+
+
+void setup() {
+    pinMode(PPD_PIN, INPUT);
+    Serial.begin(9600);
+    Serial.println("Starting");
+    starttime = millis();//get the current time;
+}
+
+void loop() {
+  duration = pulseIn(PPD_PIN, LOW);   // Take readings from dust sensor
+  lowpulseoccupancy = lowpulseoccupancy+duration;
+  Serial.println("Duration: " + String(duration));
+  if ((millis()-starttime) > sampletime_ms) // Compute the concentration every 30 seconds
+    {
+        ratio = lowpulseoccupancy/(sampletime_ms*10.0);  // Integer percentage 0=&gt;100
+        concentration = 1.1*pow(ratio,3)-3.8*pow(ratio,2)+520*ratio+0.62; // using spec sheet curve
+        
+        //Particle.publish("Ratio:", String(ratio));
+        Particle.publish("Concentration:", String(concentration) + " pcs/0.01cf");
+        
+        lowpulseoccupancy = 0;
+        
+        // Reset starttime to now
+        starttime = millis(); 
+     }
+}

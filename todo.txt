@@ -1,0 +1,118 @@
+//SENSOR TEMPERATURA
+#include <Adafruit_DHT.h>
+#include "Adafruit_DHT/Adafruit_DHT.h"
+
+// SENSOR TEMPERATURA DHT parameters
+#define DHTPIN 2
+#define DHTTYPE DHT11
+
+//SENSOR DE GAS
+#include "MQ135.h"
+//SENSOR DE POLVO
+#include <math.h>
+#define PPD_PIN D3
+//GPS
+#include "TinyGPS.h"
+// SENSOR TEMPERATURA Variables
+int temperature;
+int humidity;
+
+DHT dht(DHTPIN, DHTTYPE);
+
+//SENSOR DE GAS
+int number = 0;
+int state = 0;
+MQ135 gasSensor = MQ135(0);
+int led = D7;
+float rzero = gasSensor.getRZero();
+int ppm = gasSensor.getPPM();
+
+
+//SENSOR DE POLVO
+unsigned long duration;
+unsigned long starttime;
+unsigned long sampletime_ms = 7000;//sampe 30s ;
+unsigned long lowpulseoccupancy = 0;
+
+float ratio = 0;
+float concentration = 0;
+String json ="";
+int sleep = 10000;
+
+//GPS
+TinyGPS gps;
+char szInfo[64];
+// GPS Every 1 minute
+//int sleep = 1 * 60 * 1000;
+
+void setup(){
+    dht.begin();
+    Serial1.begin(9600);
+}
+
+void loop(){
+    json = String( "{" + String(temperatura()) + "\,\"Gas\":\"" + String(gas()) + "\",\"Gpsloc\":\{" + String(ubicacion()) +  "}\,\"Concentracion\":\"" + String(concentracion()) +"\"}");    
+    Particle.publish("PushData", String(json), 60, PRIVATE);
+    delay(5000);
+}
+
+String ubicacion(){
+     bool isValidGPS = false;
+     for (unsigned long start = millis(); millis() - start < 1000;){
+        // Check GPS data is available
+        while (Serial1.available()){
+            char c = Serial1.read();
+            // parse GPS data
+            if (gps.encode(c))
+                isValidGPS = true;
+        }
+     }
+
+     if (isValidGPS){
+        float lat, lon;
+        unsigned long age;
+        gps.f_get_position(&lat, &lon, &age);
+        String posicion = String("\"lat\":\"" + String(lat == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : lat) + "\",\"lng\":\"" +  String(lon == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : lon) +"\"");
+        
+        // sprintf(szInfo, "%.6f,%.6f", (lat == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : lat), (lon == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : lon));
+        sprintf(szInfo, posicion);
+     }else{
+        String posicion = String("\"lat\":\"" + String(0.0) + "\",\"lng\":\"" +  String(0.0) +"\"");
+        sprintf(szInfo, posicion);
+     }
+    return String(szInfo);
+    
+}
+
+String gas(){
+    float rzero = gasSensor.getRZero();
+    digitalWrite(led,HIGH);             
+    delay(100);                        
+    digitalWrite(led, LOW);             
+    delay(100);                       
+    int co2_ppm = gasSensor.getPPM();
+    int ppm = co2_ppm / 4;
+    return String(ppm);
+}
+
+String temperatura(){
+    temperature = dht.getTempCelcius();
+    humidity = dht.getHumidity();
+	String humtem = String( " \"Temperatura\":\"" + String(temperature) + "\",\"Humedad\":\"" + String(humidity) +"\""); 
+	return humtem;
+}
+
+String concentracion(){
+    duration = pulseIn(PPD_PIN, LOW);   // Take readings from dust sensor
+    lowpulseoccupancy = lowpulseoccupancy+duration;
+    Serial.println("Duration: " + String(duration));
+    if ((millis()-starttime) > sampletime_ms) // Compute the concentration every 30 seconds
+    {
+        ratio = lowpulseoccupancy/(sampletime_ms*10.0);  // Integer percentage 0=&gt;100
+        concentration = 1.1*pow(ratio,3)-3.8*pow(ratio,2)+520*ratio+0.62; // using spec sheet curve
+        lowpulseoccupancy = 0;
+        // Reset starttime to now
+        starttime = millis(); 
+    }
+     return String(concentration);
+}
